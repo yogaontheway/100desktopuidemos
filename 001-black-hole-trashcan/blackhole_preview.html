@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Black Hole — Filament Build (WebGL 预览 / 参数调试)</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:#000; overflow:hidden;
+               font-family: -apple-system, "SF Mono", Menlo, monospace; color:#e8e8ee; }
+  #stage { position:fixed; inset:0; }
+  canvas { display:block; width:100%; height:100%; }
+
+  /* --- 文件卡片 (模拟 SwiftUI 层的 S0 溶解) --- */
+  #card {
+    position:absolute; left:0; top:0; width:132px; height:96px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    background:rgba(28,28,34,.72); border:1px solid rgba(255,150,60,.5);
+    border-radius:14px; box-shadow:0 6px 14px rgba(255,150,60,.35);
+    transform-origin:50% 50%; pointer-events:none; opacity:0;
+  }
+  .shard {
+    position:absolute; left:0; top:0; width:132px; height:96px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    background:rgba(28,28,34,.72); border:1px solid rgba(255,150,60,.5);
+    border-radius:3px; box-shadow:0 6px 14px rgba(255,150,60,.35);
+    transform-origin:50% 50%; pointer-events:none; opacity:0;
+    will-change:transform,opacity,filter;
+  }
+  .shard .glyph { font-size:26px; line-height:1; }
+  .shard .name  { font-size:10px; letter-spacing:.02em; color:rgba(255,255,255,.9); }
+
+  #card .glyph { font-size:26px; line-height:1; }
+  #card .name  { font-size:10px; letter-spacing:.02em; color:rgba(255,255,255,.9); }
+
+  /* --- 控制面板 --- */
+  #panel {
+    position:fixed; left:16px; bottom:16px; width:340px; padding:14px 16px;
+    background:rgba(18,18,24,.82); backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,.14); border-radius:14px; font-size:11px;
+  }
+  #panel h1 { margin:0 0 2px; font-size:12px; letter-spacing:.14em; font-weight:800; }
+  #panel .sub { color:#9a9aa8; font-size:9.5px; margin-bottom:10px; letter-spacing:.05em; }
+  .row { display:flex; align-items:center; gap:8px; margin:7px 0; }
+  .row label { width:74px; color:#a9a9b8; flex:none; }
+  .row input[type=range] { flex:1; accent-color:#7aa2ff; height:16px; }
+  .row .val { width:40px; text-align:right; color:#dfe3ff; font-variant-numeric:tabular-nums; flex:none; }
+  .btns { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button {
+    flex:1; min-width:88px; padding:8px 10px; border-radius:9px; cursor:pointer;
+    background:rgba(255,255,255,.12); color:#fff; border:1px solid rgba(255,255,255,.22);
+    font:inherit; font-size:10.5px; letter-spacing:.06em;
+  }
+  button:hover { background:rgba(255,255,255,.2); }
+  #phase { margin-top:9px; padding-top:9px; border-top:1px solid rgba(255,255,255,.12);
+           color:#8fe3c2; font-size:10px; letter-spacing:.06em; }
+  #err { position:fixed; inset:16px; padding:16px; background:rgba(60,0,0,.92); color:#ffb4b4;
+         border-radius:12px; font-size:11px; white-space:pre-wrap; overflow:auto; display:none;
+         border:1px solid #a33; z-index:99; }
+  .chk { display:flex; align-items:center; gap:6px; color:#a9a9b8; }
+  .chk input { accent-color:#7aa2ff; }
+  #export { background:rgba(122,162,255,.28); border-color:rgba(122,162,255,.5); }
+  #export:hover { background:rgba(122,162,255,.45); }
+  #hint { margin-top:6px; color:#ffd28a; font-size:10px; letter-spacing:.05em; min-height:13px; }
+  #dump {
+    display:none; margin-top:9px; padding:9px 10px; border-radius:8px;
+    background:rgba(0,0,0,.55); border:1px solid rgba(255,255,255,.13);
+    color:#c9d4ff; font-size:9.5px; line-height:1.5; white-space:pre;
+    overflow-x:auto; user-select:all;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="card"><div class="glyph">📄</div><div class="name">Sector-Report.pdf</div></div>
+</div>
+
+<div id="panel">
+  <h1>EVENT HORIZON</h1>
+  <div class="sub">FILAMENT BUILD — WebGL 参数调试台</div>
+
+  <div class="row">
+    <label>进度 scrub</label>
+    <input type="range" id="scrub" min="0" max="3" step="0.01" value="0">
+    <span class="val" id="scrubV">0.00</span>
+  </div>
+  <div class="row">
+    <label>盘倾角 cos</label>
+    <input type="range" id="incline" min="0.15" max="0.95" step="0.01" value="0.62">
+    <span class="val" id="inclineV">0.62</span>
+  </div>
+  <div class="row">
+    <label>缠绕圈数</label>
+    <input type="range" id="omega" min="8" max="32" step="0.5" value="19">
+    <span class="val" id="omegaV">19.0</span>
+  </div>
+  <div class="row">
+    <label>丝亮度</label>
+    <input type="range" id="fgain" min="0.5" max="6" step="0.1" value="2.6">
+    <span class="val" id="fgainV">2.6</span>
+  </div>
+  <div class="row">
+    <label>盘实体</label>
+    <input type="range" id="sed" min="0" max="1.2" step="0.02" value="0.34">
+    <span class="val" id="sedV">0.34</span>
+  </div>
+  <div class="row">
+    <label>丝化盘</label>
+    <input type="range" id="spread" min="0" max="0.16" step="0.002" value="0.072">
+    <span class="val" id="spreadV">0.072</span>
+  </div>
+  <div class="row">
+    <label>丝宽</label>
+    <input type="range" id="fwidth" min="0.3" max="3" step="0.05" value="1">
+    <span class="val" id="fwidthV">1.00</span>
+  </div>
+
+  <div class="btns">
+    <button id="emit">吞掉一个文件</button>
+    <button id="auto">循环: 开</button>
+    <button id="slow">速度: 1.0x</button>
+    <button id="export">复制参数 ↓</button>
+    <button id="reset">恢复默认</button>
+  </div>
+  <div id="phase">待机 — 静止态无吸积盘</div>
+  <div id="hint"></div>
+  <pre id="dump"></pre>
+</div>
+<div id="err"></div>
+
+<script type="x-shader/x-vertex" id="vs">#version 300 es
+in vec2 aPos;
+out vec2 vUv;
+void main() {
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+</script>
+
+
+
+<script type="x-shader/x-fragment" id="fs">#version 300 es
+precision highp float;
+
+in  vec2 vUv;
+out vec4 fragColor;
+
+uniform vec2  uResolution;
+uniform float uTime;
+uniform float uSpin;
+uniform vec2  uCenter;
+uniform float uIncline;
+uniform float uRotation;
+uniform vec4  uGuide;
+uniform vec4  uFilTime;
+uniform vec4  uFilR0;
+uniform vec4  uFilA0;
+uniform vec4  uFilC0;
+uniform vec4  uFilC1;
+uniform vec4  uFilC2;
+uniform float uDur;
+uniform float uOmega;
+uniform float uFilGain;
+uniform float uSedGain;
+uniform float uWidthScale;
+uniform float uSpread;
+
+const float B     = 0.20;
+const float Rsh   = 0.19;
+const float RISCO = 0.265;
+const float ROUT  = 0.62;
+const float TAIL  = 0.42;
+
+// ---------- 噪声 ----------
+float hash21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) {
+    v += a * vnoise(p);
+    p = p * 2.03 + vec2(0.7, 1.3);
+    a *= 0.5;
+  }
+  return v;
+}
+float plasma(vec2 p, float time) {
+  vec2 q = p + 0.9 * vec2(fbm(p * 1.6 + time * 0.12),
+                          fbm(p * 1.6 + time * 0.12 + 3.7));
+  return fbm(q * 2.1 + time * 0.25);
+}
+
+// ---------- 背景星场 ----------
+float stars(vec2 uv, float aspect, float cell, float seed, float time, vec2 center) {
+  vec2 par = 0.05 * (center - 0.5);
+  vec2 g = uv * vec2(aspect, 1.0) * cell + par * cell + vec2(seed);
+  vec2 id = floor(g);
+  vec2 f = fract(g);
+  float h = hash21(id + vec2(seed));
+  float bright = step(0.952, h);
+  float mega   = step(0.991, h);
+  vec2 sp = vec2(hash21(id + 1.7), hash21(id + 3.3));
+  float d = length(f - sp);
+  float c1 = exp(-d * d * 1400.0);
+  float c2 = exp(-d * d * 500.0);
+  float halo = exp(-d * d * 130.0) * 0.45;
+  float tw = 0.7 + 0.3 * sin(time * (0.8 + 0.5 * h) + h * 37.0);
+  float s = mega * (c1 + c2 * 0.5 + halo * 0.35) + bright * (c2 * 0.35);
+  return s * tw;
+}
+float starField(vec2 uv, float aspect, float time, vec2 center) {
+  float t = 0.0;
+  t += stars(uv, aspect,  6.0, 0.0, time, center) * 0.9;
+  t += stars(uv, aspect, 10.0, 2.3, time, center) * 1.0;
+  t += stars(uv, aspect, 19.0, 3.7, time, center) * 1.2;
+  t += stars(uv, aspect, 42.0, 7.1, time, center) * 1.5;
+  return t;
+}
+vec3 spaceBG(vec2 uv, float time, vec2 center, float aspect) {
+  vec3 col = vec3(0.0);
+  float s = starField(uv, aspect, time, center);
+  col += vec3(0.80, 0.86, 1.00) * s * 0.9;
+  return col;
+}
+
+vec3 aces(vec3 x) {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+vec3 blackbodyColor(float t) {
+  vec3 col = vec3(0.0);
+  col.r = smoothstep(0.0, 0.5, t);
+  col.g = smoothstep(0.2, 0.8, t) * 0.7;
+  col.b = smoothstep(0.6, 1.0, t);
+  return col;
+}
+
+// ---------- 盘面几何: 倾角椭圆投影 (丝用正变换, 盘用反变换, 二者一致) ----------
+vec2 diskToScreen(float rd, float phi, float cosI) {
+  return vec2(rd * cos(phi), rd * sin(phi) * cosI);
+}
+vec2 screenToDisk(vec2 d0, float cosI) {
+  return vec2(d0.x, d0.y / max(cosI, 0.12));
+}
+vec2 filamentPolar(float u, float r0, float a0, float spin) {
+  float uu = clamp(u, 0.0, 1.0);
+  // 分段径向: uu<0.85 螺旋内旋到 ISCO; 之后 plunge 直坠视界 (ISCO 内无稳定轨道)
+  float rd;
+  if (uu < 0.85) {
+    rd = mix(max(r0, RISCO * 1.02), RISCO, pow(uu / 0.85, 1.55));
+  } else {
+    rd = mix(RISCO, Rsh * 1.06, (uu - 0.85) / 0.15);
+  }
+  float phi = a0 + spin * uOmega * pow(uu, 1.45);
+  return vec2(rd, phi);
+}
+
+// ---------- 统一物质流场: 丝与盘是同一种物质的两种状态 ----------
+// 物理图像: 卡片在 (r0,a0) 被引力撕裂 → 物质沿螺旋下落 → 落定后被黏性扩散摊开
+//   age = uH - s   物质落定后经过的时间
+//   age 小 → 窄而炽亮 → 看见的是「丝」
+//   age 大 → 被摊宽、连成一片 → 看见的是「盘」
+// 盘不再是独立图层, 它是丝的时空积分 —— 这是"融合"的根源
+// 由细到粗: 流带头向内推进, 沉积区 [r_head, r0] 跨度随 u 变宽
+// 再到细:   消散期早落定的外圈先塌, 外缘内收, 整体衰减至零
+void renderStream(vec2 d0, float t, float cosI, float spin,
+                  float t0, float r0, float a0, vec3 fcol,
+                  inout vec3 farC, inout vec3 nearC) {
+  float u = (t - t0) / uDur;
+  if (u <= 0.0 || u >= 1.0) return;
+
+  float sinI = sqrt(max(1.0 - cosI * cosI, 0.0));
+  float birth = smoothstep(0.0, 0.035, u);
+  float death = 1.0 - smoothstep(0.80, 1.0, u);
+  float env = birth * death;
+  if (env <= 0.002) return;
+
+  vec2 pd = screenToDisk(d0, cosI);
+  float rdp = length(pd);
+  float r0c = max(r0, RISCO * 1.02);
+  // 远界: halo 已完全为零, 纯性能裁剪 (真正的软边界在下面 clip 因子里)
+  if (rdp > r0c * 2.0 || rdp < Rsh * 0.40) return;
+  // 软裁剪: 物质在边界处平滑衰减到零 —— far 侧透镜逆变换会把圆形边界
+  // 拉成近直线, 硬 return 会在那里切出竖直亮边, 必须用渐变归零
+  float clipOut = 1.0 - smoothstep(r0c * 1.05, r0c * 1.34, rdp);
+  float clipIn  = smoothstep(Rsh * 0.68, Rsh * 0.90, rdp);
+  float phip = atan(pd.y, pd.x);
+
+  // 消散期: 早落定的外圈先塌 → 外缘内收 (由粗到细)
+  float sMin = smoothstep(0.72, 1.0, u) * 0.90;
+  // 撕裂: 多股从紧凑的一束, 逐渐被潮汐力扯散成带
+  float spreadA = 0.020 + 0.080 * smoothstep(0.0, 0.40, u);
+
+  float hotCore = 0.0, hotHalo = 0.0;   // 新物质 (丝): 锐利丝芯 / 扩散光晕分开统计
+  float sedCore = 0.0, sedHalo = 0.0;   // 沉积物质 (盘的实体)
+
+  for (int k = 0; k < 3; k++) {
+    float fk = float(k);
+    float aK = a0 + (fk - 1.0) * spreadA;
+    float uH = clamp(u - fk * 0.05, 0.0, 1.0);
+    if (uH <= 0.001) continue;
+    float phiHead = uOmega * pow(uH, 1.45);
+    if (phiHead < 0.002) continue;
+
+    float dphi = mod(spin * (phip - aK), 6.2831853);
+    for (int c = 0; c < 5; c++) {
+      float dt = dphi + 6.2831853 * float(c);
+      if (dt > phiHead) break;
+      float s = pow(dt / uOmega, 0.6897);       // 1/1.45 反解下落进度
+      if (s > uH) continue;
+
+      float age = uH - s;
+      float rdU = mix(r0c, RISCO, pow(s, 1.55));
+      float d = abs(rdp - rdU);
+
+      // 黏性扩散: 丝宽 ∝ sqrt(age) —— 丝与盘之间的连续桥; 头部收细成梢
+      float w = uWidthScale * 0.0068 + uSpread * sqrt(max(age, 0.0));
+      w *= 1.0 - 0.72 * smoothstep(uH - 0.05, uH, s);
+      // 核心 + 光晕双高斯: 核心定形; 光晕只跟随基础丝宽, 不跟随扩散
+      // (否则扩散一放大, 光晕把整幅画面雾成金饼)
+      float core = exp(-(d * d) / (w * w));
+      float hw2 = 0.016 * uWidthScale + w * 0.75;
+      float halo = exp(-(d * d) / (hw2 * hw2)) * 0.24;
+      // 新落定: 炽热的丝; 丝头一段额外增亮, 且末端自然收梢 (渐细渐灭, 无平切断口)
+      // smoothstep 边界必须从小到大: 反写是未定义行为, SwiftShader 会硬切锯齿
+      float tipFade = 1.0 - smoothstep(uH - 0.11, uH, s);
+      float headBoost = (1.0 + 0.85 * smoothstep(uH - 0.14, uH, s)) * tipFade;
+      // 最老的尾端 (s→0) 渐入归零: 第一圈未绕满时, 出生方位没有第二圈
+      // 物质来衔接, 不渐隐会切出硬边 (丝与沉积都要渐隐)
+      float tailFade = smoothstep(0.0, 0.34, s);
+      // 消散期外圈内收: 软边界淡出 —— 硬 continue 会让残留线圈在
+      // 交接方位以全亮度突然出现, 切出放射状锯齿亮边 (嵌合体成分之一)
+      float sFade = smoothstep(sMin, sMin + 0.05, s);
+      float hotG = exp(-age / 0.11) * headBoost * tailFade * sFade;
+      hotCore += core * hotG;
+      hotHalo += halo * hotG;
+      // 已落定: 转为盘体; 更老的物质缓慢散逸 (出生点不留堆积残影)
+      float sed = smoothstep(0.0, 0.22, age) * (1.0 - 0.60 * smoothstep(0.30, 0.85, age)) * tailFade * sFade;
+      sedCore += core * sed;
+      sedHalo += halo * sed;
+    }
+  }
+  // 护城河按方位角加权: 近侧 (sin(phip)<0) 从洞前掠过, 是合法前景 → 不挖河;
+  // 远侧 (sin(phip)>0) 在洞后 → 照常挖河。权重在子午线 (sin=0) 处必须
+  // 连续到 1 —— 否则左右两侧前景/背景抑制不对称, 切出水平亮阶 (嵌合体)
+  // v17 统一遮挡场: 全方向按屏幕圆平滑压暗, 阴影轮廓只由这一条曲线决定。
+  // 近侧按方位角豁免: 正前方 (sin < -0.55) 前景带自由穿过洞前;
+  // 侧面/背面满挖河。权重在中线两侧都收敛到 1 —— 左右翼上下对称无缝,
+  // 消除 v16 左/右中线处 farFade 圆 × 椭圆内缘夹出的矩形缺口
+  float occ  = smoothstep(Rsh * 1.00, Rsh * 1.55, length(d0));
+  float wOcc = smoothstep(-0.55, -0.05, sin(phip));
+  float occN = mix(1.0, occ, wOcc);
+  float hotAcc = (hotCore + hotHalo) * occN * clipOut * clipIn;
+  float sedAcc = (sedCore + sedHalo) * occN * clipOut * clipIn;
+  if (hotAcc + sedAcc < 0.0025) return;
+
+  // 颜色: 文件本色 → 被黑洞加热 → 黑体辐射 (越靠内越热)
+  float heat = smoothstep(r0c, RISCO * 1.06, rdp);
+  heat *= smoothstep(RISCO, RISCO * 1.30, rdp);   // 内缘降温归零: 边缘以文件本色渐隐, 消除贴边热线
+  vec3 col = mix(fcol, blackbodyColor(heat), smoothstep(0.0, 0.55, heat));
+  col = mix(col, blackbodyColor(0.78 + 0.18 * heat), 0.30 * heat);
+
+  float dopp = -spin * sinI * cos(phip);
+  float beam = 1.0 + 2.2 * pow(max(dopp, 0.0), 1.4);
+  float dim  = mix(1.0, 0.34, max(-dopp, 0.0));
+
+  float sedS = 1.0 - exp(-sedAcc * 1.4);           // 饱和: 多圈叠加不过曝
+  vec3 c = col * (hotAcc * uFilGain + sedS * uSedGain) * beam * dim * env;
+  c *= mix(1.0, 0.55, smoothstep(0.10, 0.40, sin(phip)));   // 远侧压暗 (窗口外移: 两翼与近侧对称)
+  // v17: farFade/moat 已被统一遮挡场 occ 覆盖 (其轮廓恰为阴影圆, 完全落在
+  // occ 的 kill 区内), 删除以减少洞周相贯轮廓数
+  if (sin(phip) > 0.0) farC += c; else nearC += c;
+}
+
+void main() {
+  float aspect = uResolution.x / max(uResolution.y, 1.0);
+  vec2 uv = vUv;
+
+  float cosI = clamp(uIncline, 0.10, 1.0);
+  float spin = (uSpin >= 0.0) ? 1.0 : -1.0;
+
+  vec2 d0 = uv - uCenter;
+  d0.x *= aspect;
+  float r   = length(d0);
+  float ang = atan(d0.y, d0.x);
+
+  float grc = 0.0;
+  if (uGuide.w > 0.001) grc = exp(-pow((r - uGuide.z) / 0.018, 2.0));
+
+  // 吞噬活跃度: 有物质坠落时, 光子环辉光/透镜星光才亮起 (盘本隐藏)
+  // ringPulse: 光子环只在吞噬尾声 (盘将熄) 亮起, 盘消失后熄灭
+  float activity = 0.0;
+  float ringPulse = 0.0;
+  for (int q = 0; q < 3; q++) {
+    float tq = (q == 0) ? uFilTime.x : ((q == 1) ? uFilTime.y : uFilTime.z);
+    if (tq <= -900.0) continue;
+    float sq = uTime - tq;
+    if (sq > 0.0 && sq < uDur) activity += 1.0 - sq / uDur;
+    if (sq > 0.0 && sq < uDur * 1.12) {
+      float p = sq / uDur;
+      ringPulse += smoothstep(0.68, 0.86, p) * (1.0 - smoothstep(1.00, 1.10, p));
+    }
+  }
+  float act = clamp(activity, 0.0, 1.0);
+  float ringGlow = clamp(ringPulse, 0.0, 1.0);
+
+  float inShadow = 1.0 - smoothstep(Rsh * 0.70, Rsh, r);
+  float rw = max(fwidth(r), 1e-4);
+
+  float rr   = max(r, B * 0.42);
+  float Rl   = rr + (B * B) / rr;
+  float defl = 1.4 * (B * B) / (rr * rr);
+  float la   = ang + (uRotation * 0.9 + 0.35) * (B / rr) + sin(ang) * defl;
+  vec2 ldir  = vec2(cos(la), sin(la));
+  vec2 src   = uCenter + vec2(ldir.x / aspect, ldir.y) * Rl;
+
+  vec3 col = spaceBG(src, uTime, uCenter, aspect);
+  col *= 0.25 + 0.75 * smoothstep(B * 0.70, B * 3.4, r);
+  col *= 1.0 - inShadow;
+
+  float lensB = exp(-pow((r - Rsh * 1.17) / (0.11 * B), 2.0)) * (1.0 - inShadow);
+  vec3 lensStar = vec3(0.55, 0.65, 0.95);
+  // 透镜星光: 吞噬活跃时才可见 (否则是独立灰雾环, 破坏"盘本隐藏")
+  // 透镜星光: 只随光子环一起, 在吞噬尾声亮起 —— 平时保持隐藏
+  col += lensStar * lensB * (0.02 + (0.08 + 0.28 * plasma(vec2(d0.x * 1.8, d0.y * 1.8 + r * 0.5), uTime)) * ringGlow);
+
+  vec3 ringC = vec3(1.08, 0.94, 0.72);
+  // 锐利光子环已按要求移除, 只保留宽柔雾环 haloRing (尾声亮起再熄灭)
+  vec3 farC  = vec3(0.0);
+  vec3 nearC = vec3(0.0);
+  for (int i = 0; i < 3; i++) {
+    float t0 = (i == 0) ? uFilTime.x : ((i == 1) ? uFilTime.y : uFilTime.z);
+    if (t0 <= -900.0) continue;
+    float since = uTime - t0;
+    if (since <= 0.0 || since >= uDur) continue;
+
+    float r0 = (i == 0) ? uFilR0.x : ((i == 1) ? uFilR0.y : uFilR0.z);
+    float a0 = (i == 0) ? uFilA0.x : ((i == 1) ? uFilA0.y : uFilA0.z);
+    vec3 fc  = (i == 0) ? uFilC0.rgb : ((i == 1) ? uFilC1.rgb : uFilC2.rgb);
+
+    renderStream(d0, uTime, cosI, spin, t0, r0, a0, fc, farC, nearC);
+  }
+
+  // 尾声白圈 v16: 半径收到 Rsh*1.10、宽度减半 —— 比吸积盘小, 紧贴黑洞表面
+  vec3 haloRing = ringC * exp(-pow((r - Rsh * 1.10) / (0.10 * B), 2.0)) * (1.0 - inShadow)
+         * (0.004 + (0.012 + 0.055 * plasma(vec2(d0.x * 1.5, d0.y * 1.5 + r * 0.3), uTime)) * ringGlow);
+  col += haloRing;                     // 静止态近乎熄灭, 吞噬时亮起
+
+  col += farC;
+  float evMask = 1.0 - smoothstep(Rsh * 0.92, Rsh, r);
+  col *= 1.0 - evMask;
+  col += nearC;
+
+  col += vec3(0.02, 0.02, 0.03) * grc * uGuide.w * 0.5;
+
+  vec2 sv = vUv - 0.5;
+  sv.x *= aspect;
+  col *= 1.0 - 0.14 * pow(length(sv) * 1.5, 2.0);
+
+  col = aces(col);
+  col = pow(col, vec3(1.0 / 2.2));
+  fragColor = vec4(col, 1.0);
+}
+</script>
+
+<script>
+(function () {
+  const cv = document.getElementById('cv');
+  const errBox = document.getElementById('err');
+  const gl = cv.getContext('webgl2', { antialias: false, alpha: false });
+
+  function fail(msg) {
+    errBox.style.display = 'block';
+    errBox.textContent = msg;
+    console.error(msg);
+  }
+  if (!gl) { fail('此浏览器不支持 WebGL2'); return; }
+
+  function compile(type, src, tag) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      fail('[' + tag + '] 编译失败:\n' + gl.getShaderInfoLog(s));
+      return null;
+    }
+    return s;
+  }
+
+  const vsSrc = document.getElementById('vs').textContent.trim();
+  const fsSrc = document.getElementById('fs').textContent.trim();
+  const vs = compile(gl.VERTEX_SHADER, vsSrc, 'vertex');
+  const fs = compile(gl.FRAGMENT_SHADER, fsSrc, 'fragment');
+  if (!vs || !fs) return;
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    fail('链接失败:\n' + gl.getProgramInfoLog(prog));
+    return;
+  }
+  gl.useProgram(prog);
+
+  const quad = new Float32Array([-1,-1, 3,-1, -1,3]);
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const U = {};
+  ['uResolution','uTime','uSpin','uCenter','uIncline','uRotation','uGuide',
+   'uFilTime','uFilR0','uFilA0','uFilC0','uFilC1','uFilC2',
+   'uDur','uOmega','uFilGain','uSedGain','uWidthScale','uSpread']
+    .forEach(n => U[n] = gl.getUniformLocation(prog, n));
+
+  // ---- 状态 ----
+  const DUR = 3.0;
+  let clock = 0;                 // shader 时钟
+  let emitTimes = [-1000,-1000,-1000,0];   // vec4: 前 3 位为槽位, 第 4 位占位
+  let emitR0 = [0,0,0,0], emitA0 = [0,0,0,0];
+  let emitCol = [[0,0,0],[0,0,0],[0,0,0]];
+  let slot = 0;
+  let cardAnim = null;           // { start, r0, a0 }
+  let autoLoop = true;
+  let speed = 1.0;
+  let manual = null;             // 非 null 时冻结在指定 since
+  let last = performance.now();
+
+  const PALETTE = [
+    [1.00, 0.55, 0.20, '📄', 'Sector-Report.pdf', 'rgba(255,150,60,.5)'],
+    [0.30, 0.85, 0.80, '🎬', 'Neptune.mov',       'rgba(80,220,205,.5)'],
+    [0.70, 0.40, 1.00, '🎵', 'Frequencies.wav',   'rgba(180,110,255,.5)'],
+    [0.95, 0.30, 0.55, '{}',  'Invoice.Q3.json',  'rgba(240,80,140,.5)'],
+    [0.30, 0.75, 0.95, '🗜', 'Orbit Archive.zip', 'rgba(80,190,240,.5)'],
+    [0.35, 0.50, 1.00, '🧊', 'Nebula.usdz',      'rgba(90,128,255,.5)']
+  ];
+  let paletteIdx = 0;
+
+  function emit() {
+    const H = cv.clientHeight, W = cv.clientWidth;
+    // 从下方随机角度落入 (模拟卡片被拖到捕获圈边缘)
+    const a0 = (Math.random() * 2 - 1) * Math.PI;   // 数学坐标
+    const r0 = 0.34 + Math.random() * 0.10;          // 屏幕高度单位
+
+    const i = slot % 3; slot++;
+    emitTimes[i] = clock;
+    // 抓取点 = 近黑洞侧短边中点 —— 光丝出生点 (与撕裂头部共用, 保证角与盘相连)
+    const stX = W * 0.5 + Math.cos(a0) * r0 * H;
+    const stY = H * 0.5 - Math.sin(a0) * r0 * H;
+    const axX = W * 0.5 > stX ? 1 : -1;
+    const hx = stX + axX * CARD_W / 2, hy = stY;
+    const rH = Math.hypot(hx - W * 0.5, hy - H * 0.5) / H;
+    const aH = Math.atan2(-(hy - H * 0.5), hx - W * 0.5);
+    emitR0[i] = rH;
+    emitA0[i] = aH;
+    window.__dbg = { rH: rH, aH: aH, r0: r0, a0: a0 };
+    const p = PALETTE[paletteIdx % PALETTE.length]; paletteIdx++;
+    emitCol[i] = [p[0], p[1], p[2]];
+
+    cardAnim = { start: clock, r0: r0, a0: a0, rH: rH, aH: aH, axX: axX,
+                 glyph: p[3], name: p[4], border: p[5] };
+    const card = document.getElementById('card');
+    card.querySelector('.glyph').textContent = p[3];
+    card.querySelector('.name').textContent = p[4];
+    card.style.borderColor = p[5];
+    card.style.boxShadow = '0 6px 14px ' + p[5];
+    buildShards();
+  }
+
+  // ---- 卡片溶解: 潮汐撕拉 (对应 SwiftUI shardView, 0.60s) ----
+  // 连续形变, 无切片缝隙: 近黑洞的角先被引力拽上螺旋, 邻切片间距决定切向
+  // 拉伸量, 整张文件像拉麦芽糖一样被拉长、拉细、白热化, 最后溶入 GPU 光丝
+  const SHARDS = 28;
+  const CARD_W = 132, CARD_H = 96;
+  let shardEls = [];
+
+  function buildShards() {
+    shardEls.forEach(el => el.remove());
+    shardEls = [];
+    const src = document.getElementById('card');
+    for (let i = 0; i < SHARDS; i++) {
+      const el = document.createElement('div');
+      el.className = 'shard';
+      el.innerHTML = src.innerHTML;
+      el.style.borderColor = src.style.borderColor;
+      el.style.boxShadow = '0 6px 14px ' + src.style.borderColor;
+      src.parentElement.appendChild(el);
+      shardEls.push(el);
+    }
+    src.style.opacity = 0;
+  }
+
+  function hideShards() { shardEls.forEach(el => { el.style.opacity = 0; }); }
+
+  function updateCard(since) {
+    if (!cardAnim) { hideShards(); return; }
+    const W = cv.clientWidth, H = cv.clientHeight;
+    const t = Math.min(1, since / 0.60);
+    if (t >= 1) { hideShards(); return; }
+    const holeX = W * 0.5, holeY = H * 0.5;
+    const cosI = parseFloat(document.getElementById('incline').value);
+    const OM   = parseFloat(document.getElementById('omega').value);
+    const spin = 1.0;
+    const RISCO = 0.265;
+
+    // 静止卡: 落点中心, 水平姿态
+    const r0pts = cardAnim.r0 * H;
+    const a0 = cardAnim.a0;
+    const startX = holeX + Math.cos(a0) * r0pts;
+    const startY = holeY - Math.sin(a0) * r0pts;
+    const axX = cardAnim.axX;
+
+    // ---- 光丝流线 (renderStream 领先股 k=0: uH = u, aK = aH - spreadA) ----
+    // 出生点 = 抓取点, 头部钉在领先股头上 (丝不会从卡尖前面窜出形成假折角)
+    const uT = Math.min(0.2, since / 3.0);
+    const uH = uT;
+    const r0c = Math.max(cardAnim.rH, RISCO * 1.02);
+    const spreadA = 0.020 + 0.080 * smooth(0.0, 0.40, uT);
+    const streamPt = (s) => {
+      const rd = (r0c + (RISCO - r0c) * Math.pow(s, 1.55)) * H;
+      const aa = (cardAnim.aH - spreadA) + spin * OM * Math.pow(s, 1.45);
+      return { x: holeX + Math.cos(aa) * rd, y: holeY - Math.sin(aa) * rd * cosI };
+    };
+    const birth = streamPt(0);
+
+    // 弧长表: 沿流线从出生点累计 (头在 s=uH, 距头弧长 = L - cum(s))
+    const K = 48;
+    const cum = [0];
+    for (let j = 1; j <= K; j++) {
+      const p1 = streamPt((j - 1) / K * uH), p2 = streamPt(j / K * uH);
+      cum.push(cum[j - 1] + Math.hypot(p2.x - p1.x, p2.y - p1.y));
+    }
+    const L = cum[K];
+
+    // 延伸段: 出生点的时间反演螺旋 (流线同族曲线的镜像) —— 交点 C1 连续,
+    // 曲率过渡自然成 S 形, 不会有直线段岔开的角度
+    const extPt = (sE) => {
+      const rd = (r0c + (r0c - RISCO) * Math.pow(sE, 1.55)) * H;
+      const aa = (cardAnim.aH - spreadA) - spin * OM * Math.pow(sE, 1.45);
+      return { x: holeX + Math.cos(aa) * rd, y: holeY - Math.sin(aa) * rd * cosI };
+    };
+    const sEmax = 0.22, KE = 32;
+    const cumE = [0];
+    for (let j = 1; j <= KE; j++) {
+      const q1 = extPt((j - 1) / KE * sEmax), q2 = extPt(j / KE * sEmax);
+      cumE.push(cumE[j - 1] + Math.hypot(q2.x - q1.x, q2.y - q1.y));
+    }
+
+    // 拉伸率 (潮汐差应力, 头大尾小) → 材质点距头的弧长
+    const stretch = 1.8 * Math.pow(t, 1.6);
+    const whip    = 1.2 * Math.pow(t, 1.8);
+    const arcAt = (f) => CARD_W * (f + (stretch / 3) * (1 - Math.exp(-3 * f))
+                                  + (whip / 2) * (1 - Math.exp(-6 * f)));
+    const squeezeAt = (f) => 1 + stretch * Math.exp(-3 * f) + 3 * whip * Math.exp(-6 * f);
+    const locate = (A) => {
+      const B = L - A;                     // 距出生点的弧长
+      if (B >= 0) {
+        const Bcl = Math.min(B, L);
+        let j = 0;
+        while (j < K && cum[j + 1] < Bcl) j++;
+        const fr = (Bcl - cum[j]) / Math.max(cum[j + 1] - cum[j], 1e-6);
+        return streamPt((j + fr) / K * uH);
+      }
+      const d = -B;
+      if (d >= cumE[KE]) return extPt(sEmax);
+      let jE = 0;
+      while (jE < KE && cumE[jE + 1] < d) jE++;
+      const frE = (d - cumE[jE]) / Math.max(cumE[jE + 1] - cumE[jE], 1e-6);
+      return extPt((jE + frE) / KE * sEmax);
+    };
+
+    // ---- 关节点 J[0..n]: 材质边 f=0 (头) → 1 (尾) ----
+    const n = SHARDS;
+    const J = [];
+    for (let jf = 0; jf <= n; jf++) {
+      const f = jf / n;
+      const restX = startX + axX * (CARD_W / 2 - f * CARD_W);
+      const restY = startY;
+      const bw = smooth(0.05, 0.55, t - 0.30 * f);      // 弯折波: 头先尾后
+      const sp = locate(arcAt(f));
+      J.push({ x: restX + (sp.x - restX) * bw, y: restY + (sp.y - restY) * bw });
+    }
+
+    // ---- 切片: 两端精确落在相邻关节点上 (弦长 = 片宽), 数学上无缝 ----
+    const sliceW = CARD_W / n;
+    for (let i = 0; i < n; i++) {
+      const el = shardEls[i];
+      if (!el) continue;
+      // 贴图左/右边缘对应的关节 (贴图左缘 = 卡片左缘; 头在近黑洞侧)
+      const kL = axX > 0 ? n - i : i;
+      const kR = axX > 0 ? n - 1 - i : i + 1;
+      const pL = J[kL], pR = J[kR];
+      const dx = pR.x - pL.x, dy = pR.y - pL.y;
+      const chord = Math.max(Math.hypot(dx, dy), 0.5);
+      const sx = chord / sliceW;           // 不 clamp: clamp 会破坏无缝铺瓦
+      const rot = Math.atan2(dy, dx);
+      const midX = (pL.x + pR.x) / 2, midY = (pL.y + pR.y) / 2;
+
+      // 条带偏移补偿: 蒙版片段偏离元素中心 (i+0.5)*sliceW - W/2, 旋转会把它转走
+      const ex = (i + 0.5) * sliceW - CARD_W / 2;
+      const cx = midX - Math.cos(rot) * sx * ex;
+      const cy = midY - Math.sin(rot) * sx * ex;
+
+      const fMid = axX > 0 ? 1 - (i + 0.5) / n : (i + 0.5) / n;
+      const bw = smooth(0.05, 0.55, t - 0.30 * fMid);
+      const sq  = squeezeAt(fMid);
+      const lit = Math.max(smooth(1.08, 1.9, sq), 0.85 * smooth(0.70, 1.0, t));
+      // 局部转角越大条带越细: 消除旋转梳齿, 且"拉成细光带"叙事一致
+      const segAng = (k) => {
+        const a = Math.min(k, n - 1);
+        const q1 = J[axX > 0 ? n - a : a];
+        const q2 = J[axX > 0 ? n - 1 - a : a + 1];
+        return Math.atan2(q2.y - q1.y, q2.x - q1.x);
+      };
+      let dth = Math.abs(segAng(i + 1) - segAng(i));
+      if (dth > Math.PI) dth = 2 * Math.PI - dth;
+      const sy  = (1 - 0.60 * bw) * Math.max(0.30, 1 - 5.0 * dth);
+      const op  = 1 - 0.93 * smooth(0.82 + 0.08 * fMid, 1.0, t);
+
+      // 蒙版加宽 2.4px: 相邻片咬合 (重叠区像素一致), 盖住旋转楔形缝
+      const Lft = Math.max(0, i * sliceW - 1.2);
+      const Rgt = Math.max(0, CARD_W - (i + 1) * sliceW - 1.2);
+      el.style.clipPath = 'inset(0 ' + Rgt.toFixed(1) + 'px 0 ' + Lft.toFixed(1) + 'px)';
+      el.style.left = (cx - CARD_W / 2) + 'px';
+      el.style.top  = (cy - CARD_H / 2) + 'px';
+      el.style.transform = 'rotate(' + rot.toFixed(4) + 'rad) scale(' + sx.toFixed(3) + ',' + sy.toFixed(3) + ')';
+      el.style.opacity = op.toFixed(3);
+      el.style.filter = 'brightness(' + (1 + 1.3 * lit).toFixed(3) +
+                        ') saturate(' + (1 + 0.6 * t).toFixed(3) +
+                        ') blur(' + (0.4 + 5.0 * lit).toFixed(2) + 'px)';
+    }
+  }
+
+  function smooth(e0, e1, x) {
+    const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    gl.viewport(0, 0, cv.width, cv.height);
+  }
+
+  function render(uTime) {
+    resize();
+    gl.uniform2f(U.uResolution, cv.width, cv.height);
+    gl.uniform1f(U.uTime, uTime);
+    gl.uniform1f(U.uSpin, 1.0);
+    gl.uniform2f(U.uCenter, 0.5, 0.5);
+    gl.uniform1f(U.uIncline, parseFloat(document.getElementById('incline').value));
+    gl.uniform1f(U.uRotation, uTime * 0.5);
+    gl.uniform4f(U.uGuide, 0, 0, 0.38, 0);
+    gl.uniform4fv(U.uFilTime, emitTimes);
+    gl.uniform4fv(U.uFilR0, emitR0);
+    gl.uniform4fv(U.uFilA0, emitA0);
+    gl.uniform4f(U.uFilC0, emitCol[0][0], emitCol[0][1], emitCol[0][2], 1);
+    gl.uniform4f(U.uFilC1, emitCol[1][0], emitCol[1][1], emitCol[1][2], 1);
+    gl.uniform4f(U.uFilC2, emitCol[2][0], emitCol[2][1], emitCol[2][2], 1);
+    gl.uniform1f(U.uDur, DUR);
+    gl.uniform1f(U.uOmega, parseFloat(document.getElementById('omega').value));
+    gl.uniform1f(U.uFilGain, parseFloat(document.getElementById('fgain').value));
+    gl.uniform1f(U.uSedGain, parseFloat(document.getElementById('sed').value));
+    gl.uniform1f(U.uSpread, parseFloat(document.getElementById('spread').value));
+    gl.uniform1f(U.uWidthScale, parseFloat(document.getElementById('fwidth').value));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  const phaseEl = document.getElementById('phase');
+  const PHASES = [
+    [0.00, 0.60, 'S0 撕裂 — 卡片被潮汐撕成光, 交给 GPU'],
+    [0.60, 1.80, 'S1 缠绕 — 3 股光丝沿自转方向内旋'],
+    [1.80, 2.40, 'S2 成盘 — 丝头抵 ISCO, 轨迹沉淀为盘'],
+    [2.40, 3.00, 'S3 消散 — 外缘内坍, 归于宁静']
+  ];
+
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+
+    let uTime;
+    if (manual !== null) {
+      uTime = emitTimes[(slot - 1 + 3) % 3] + manual;
+      if (emitTimes[(slot - 1 + 3) % 3] <= -900) uTime = manual;
+    } else {
+      clock += dt * speed;
+      uTime = clock;
+    }
+
+    render(uTime);
+
+    // 阶段显示
+    const lastT = emitTimes[(slot - 1 + 3) % 3];
+    if (lastT > -900) {
+      const since = uTime - lastT;
+      if (since >= 0 && since < DUR) {
+        let txt = '';
+        for (const p of PHASES) if (since >= p[0] && since < p[1]) txt = p[2];
+        phaseEl.textContent = 't = ' + since.toFixed(2) + 's  |  ' + txt;
+        updateCard(since);
+      } else {
+        phaseEl.textContent = '待机 — 静止态无吸积盘';
+        updateCard(99);
+      }
+      if (autoLoop && manual === null && since > DUR + 0.6) emit();
+    } else {
+      updateCard(99);
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---- UI ----
+  const scrub = document.getElementById('scrub');
+  scrub.addEventListener('input', () => {
+    manual = parseFloat(scrub.value);
+    document.getElementById('scrubV').textContent = manual.toFixed(2);
+  });
+  document.getElementById('emit').addEventListener('click', () => { manual = null; emit(); });
+  const autoBtn = document.getElementById('auto');
+  autoBtn.addEventListener('click', () => {
+    autoLoop = !autoLoop;
+    autoBtn.textContent = '循环: ' + (autoLoop ? '开' : '关');
+  });
+  const slowBtn = document.getElementById('slow');
+  const SPEEDS = [1.0, 0.5, 0.25, 2.0];
+  let si = 0;
+  slowBtn.addEventListener('click', () => {
+    si = (si + 1) % SPEEDS.length;
+    speed = SPEEDS[si];
+    slowBtn.textContent = '速度: ' + speed + 'x';
+  });
+  [['incline','inclineV'],['omega','omegaV'],['fgain','fgainV'],
+   ['sed','sedV'],['spread','spreadV'],['fwidth','fwidthV']].forEach(([id, vid]) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      document.getElementById(vid).textContent = parseFloat(el.value).toFixed(
+        (id === 'fwidth' || id === 'sed') ? 2 : (id === 'omega' ? 1 : (id === 'spread' ? 3 : 2)));
+    });
+  });
+
+  // ---- 参数导出: 生成可直接覆盖 BlackHoleApp.swift 的常量块 ----
+  const DEFAULTS = { incline: 0.62, omega: 19, fgain: 2.6, sed: 0.34, spread: 0.072, fwidth: 1 };
+  const dumpEl = document.getElementById('dump');
+  const hintEl = document.getElementById('hint');
+  let hintTimer = null;
+  function hint(msg) {
+    hintEl.textContent = msg;
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { hintEl.textContent = ''; }, 4000);
+  }
+
+  function buildSnippet() {
+    const g = id => parseFloat(document.getElementById(id).value);
+    const inc = g('incline'), om = g('omega');
+    const fg = g('fgain'), dg = g('sed'), fw = g('fwidth'), sp = g('spread');
+    return [
+      '// ---- 由 blackhole_preview.html 导出 ----',
+      'constant float OMEGA      = ' + om.toFixed(1) + ';   // 丝的累计缠绕弧度 (≈' +
+        (om / 6.2832).toFixed(1) + ' 圈)',
+      'constant float FIL_GAIN   = ' + fg.toFixed(1) + ';   // 丝亮度',
+      'constant float SED_GAIN   = ' + dg.toFixed(2) + ';  // 盘实体 (丝的沉积)',
+      'constant float WIDTH_SCALE= ' + fw.toFixed(2) + ';  // 丝宽倍率',
+      'constant float SPREAD     = ' + sp.toFixed(3) + '; // 丝→盘的黏性扩散率',
+      '',
+      '// SwiftUI 侧 (两处需同步):',
+      'var diskIncline: Float = ' + inc.toFixed(2),
+      'u.diskIncline = ' + inc.toFixed(2)
+    ].join('\n');
+  }
+
+  document.getElementById('export').addEventListener('click', async () => {
+    const txt = buildSnippet();
+    dumpEl.textContent = txt;
+    dumpEl.style.display = 'block';
+    try {
+      await navigator.clipboard.writeText(txt);
+      hint('✓ 已复制到剪贴板 — 粘给八喜即可写回 Swift');
+    } catch (e) {
+      // file:// 下剪贴板 API 常被拒 —— 自动选中代码块, ⌘C 即可
+      const r = document.createRange();
+      r.selectNodeContents(dumpEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+      hint('已选中下方代码块 — ⌘C 复制');
+    }
+  });
+
+  document.getElementById('reset').addEventListener('click', () => {
+    for (const [id, v] of Object.entries(DEFAULTS)) {
+      const el = document.getElementById(id);
+      el.value = v;
+      el.dispatchEvent(new Event('input'));
+    }
+    dumpEl.style.display = 'none';
+    hint('已恢复默认参数');
+  });
+
+  // 启动: 1 秒后自动吞第一个
+  setTimeout(() => { emit(); }, 800);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
