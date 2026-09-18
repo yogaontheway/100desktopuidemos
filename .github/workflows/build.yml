@@ -11,6 +11,9 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build all demos
@@ -30,7 +33,7 @@ jobs:
           NSUnbufferedIO: YES
         run: |
           set -euo pipefail
-
+          {
           # 自动发现所有 demo 目录下的 Xcode 工程 —— 新增 002/003/... 无需改配置
           # (runner 上是 bash 3.2, 不能用 mapfile / readarray)
           find . -maxdepth 4 -name "*.xcodeproj" \
@@ -78,3 +81,17 @@ jobs:
           done < "$RUNNER_TEMP/xc_packages.txt"
 
           exit $status
+          } 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Publish build log (debug)
+        if: failure()
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git checkout --orphan ci-debug
+          git rm -rf --cached . -q || true
+          mkdir -p .ci-logs
+          cp "$RUNNER_TEMP/build.log" .ci-logs/build.log 2>/dev/null || echo "no build log captured" > .ci-logs/build.log
+          git add .ci-logs/build.log
+          git commit -q -m "CI failure log for ${GITHUB_SHA::7}"
+          git push -f origin ci-debug
