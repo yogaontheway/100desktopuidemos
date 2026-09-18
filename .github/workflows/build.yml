@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -83,17 +83,4 @@ jobs:
           done < "$RUNNER_TEMP/xc_packages.txt"
 
           exit $status
-          } 2>&1 | tee "$RUNNER_TEMP/build.log"
-
-      - name: Publish build log (debug)
-        if: failure()
-        run: |
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@users.noreply.github.com"
-          git checkout --orphan ci-debug
-          git rm -rf --cached . -q || true
-          mkdir -p .ci-logs
-          cp "$RUNNER_TEMP/build.log" .ci-logs/build.log 2>/dev/null || echo "no build log captured" > .ci-logs/build.log
-          git add .ci-logs/build.log
-          git commit -q -m "CI failure log for ${GITHUB_SHA::7}"
-          git push -f origin ci-debug
+          }
