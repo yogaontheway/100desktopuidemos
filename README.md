@@ -28,6 +28,10 @@ A curated collection of 100 desktop UI components, interactive effects, and shad
 2. 在 demo 目录内放一张 `preview.gif`（录制实际运行效果）；
 3. 在根目录 README 的清单表格中加一行。
 
+## 版本标记
+
+Demo 达到一个稳定可复现的状态时打 annotated tag，命名 `demo-name-vNN`，例如 `black-hole-v17`（001 号 Demo 的统一遮挡场版本）。
+
 ---
 
 每个 Demo 均为独立实验性质，代码可自由取用。
