@@ -1,52 +1,53 @@
-# 001 · 黑洞引力回收站 (Black Hole Trashcan)
+# 001 · Black Hole Trashcan
 
-把文件拖到窗口里，文件卡片会被黑洞的潮汐力撕成三股光丝，沿旋转方向缠绕坠落、摊开成吸积盘，最后被吞噬殆尽 —— 全程约 3 秒，一条 Metal shader 完成。
+Drag a file into the window and its card is torn apart by the black hole's tidal force into three glowing filaments. They wind along the spin direction, fall inward, spread into an accretion disk, and are finally devoured — roughly 3 seconds end to end, all in a single Metal shader.
 
 ![preview](./preview.gif)
 
-## 运行
+## Run it
 
 ```bash
 cd BlackHole
-open BlackHole.xcodeproj   # Xcode 中 Cmd+R
+open BlackHole.xcodeproj   # then Cmd+R in Xcode
 ```
 
-拖任意文件到窗口即可触发。
+Drag any file onto the window to trigger the effect.
 
-## 核心实现
+## How it works
 
-- **统一物质流场**（`renderStream`）：丝与盘不是两个图层——"丝"是新坠入的物质（窄而炽亮），"盘"是丝的沉积（黏性扩散 `width ∝ √age` 摊开）。撕裂、缠绕、成盘、消散全部由同一个时间函数驱动。
-- **连续潮汐撕裂**：不切片、不扇形展开。文件卡片以连续形变场被拉长、变光，28 个切片节点铺瓦 + 48 段弧长表反解保证无缝。
-- **引力锚定**：出生点 = 抓取点极坐标直接传入 shader，丝头按 `φ = ω·u^1.45` 螺旋推进，与盘的交接处用时间反演镜像螺旋衔接（C1 连续，无折角）。
-- **统一遮挡场（v17）**：洞周只用一条软边界 `occ = smoothstep(1.0Rsh, 1.55Rsh, r)` 全方向压暗，近侧按方位角豁免（前景带可从黑洞前方掠过、遮挡视界下部）。消除了多种抑制轮廓相夹产生的"嵌合体"缺口。
-- **多普勒 beaming**：转向观察者的一侧增亮（×3.2），远离侧压暗，吸积盘有真实的不对称亮度。
-- **引力透镜近似**：Schwarzschild 径向重映射 + 弧向弯折，远侧盘带被抬到视界之外。
+- **Unified matter flow field** (`renderStream`): filaments and disk are not two separate layers — a filament is freshly infalling matter (narrow and hot), the disk is its sediment (viscous spreading, `width ∝ √age`). Tearing, winding, disk formation and dissipation are all driven by one time function.
+- **Continuous tidal disruption**: no slicing, no fan-out. The card is stretched and brightened by a continuous deformation field; 28 slice nodes are tiled and a 48-segment arc-length table is inverted to keep it seamless.
+- **Gravitational anchoring**: the birth point is the grab point, passed to the shader in polar coordinates. The filament head advances along `φ = ω·u^1.45`; the handoff to the disk uses a time-reversed mirrored spiral for C1 continuity (no kink).
+- **Unified occlusion field (v17)**: a single soft boundary `occ = smoothstep(1.0·Rsh, 1.55·Rsh, r)` darkens the surroundings in all directions, with a near-side azimuthal exemption so foreground bands can sweep in front of the hole and occlude the lower part of the horizon. This removes the "chimera" gaps caused by several suppression contours overlapping.
+- **Doppler beaming**: the side turning toward the observer brightens (×3.2), the receding side dims, giving the disk a physically plausible asymmetric brightness.
+- **Gravitational lensing approximation**: Schwarzschild radial remapping plus azimuthal bending lifts the far side of the disk above the horizon.
 
-## 关键参数
+## Key parameters
 
-| 参数 | 值 | 含义 |
+| Parameter | Value | Meaning |
 | :-- | :-- | :-- |
-| `DUR` | 3.0 s | 吞噬全程时长 |
-| `OMEGA` | 19 rad | 螺旋总角行程 |
-| `RISCO` | 0.265 | 吸积盘内缘（最内稳定圆轨道，屏幕高度单位） |
-| `diskIncline` | 0.62 | 盘倾角 cosI（越小越侧视） |
-| `FIL_GAIN / SED_GAIN` | 2.6 / 0.34 | 丝亮度 / 沉积盘亮度 |
-| `shardCount` | 28 | 撕裂切片数 |
+| `DUR` | 3.0 s | Total duration of the devouring sequence |
+| `OMEGA` | 19 rad | Total angular travel of the spiral |
+| `RISCO` | 0.265 | Disk inner edge (innermost stable circular orbit, in screen-height units) |
+| `diskIncline` | 0.62 | Disk inclination cosI (smaller = more edge-on) |
+| `FIL_GAIN / SED_GAIN` | 2.6 / 0.34 | Filament brightness / sediment disk brightness |
+| `shardCount` | 28 | Number of disruption slices |
 
-## 文件结构
+## Layout
 
 ```
 001-black-hole-trashcan/
-├── BlackHole/                  # 完整 Xcode 工程 (SwiftUI + Metal)
+├── BlackHole/                  # full Xcode project (SwiftUI + Metal)
 │   ├── BlackHole.xcodeproj
-│   └── BlackHole/BlackHoleApp.swift   # 全部逻辑与 MSL shader 在这一个文件里
-├── blackhole_preview.html      # WebGL2 复刻版 (浏览器直接打开, 带时间轴/参数滑块,
-│                               #   用于无 Metal 环境下逐帧验证 shader 参数)
-├── preview.gif                 # 运行效果
+│   └── BlackHole/BlackHoleApp.swift   # all logic and the MSL shader live in this one file
+├── blackhole_preview.html      # WebGL2 port (open directly in a browser; ships with a
+│                               #   timeline and parameter sliders, used for frame-by-frame
+│                               #   shader verification on machines without Metal)
+├── preview.gif                 # recorded run
 └── README.md
 ```
 
-## 版本演进
+## Iteration history
 
- shader 经历 17 轮迭代（v1 Playground 原型 → v17 统一遮挡场），每版重点：
-撕裂形态（v4-v5）→ 环时序（v6-v8）→ 衔接连续性（v7, v9-v10）→ 洞盘间距（v11-v14）→ 性能（v12）→ 边界消线（v13, v16）→ 统一遮挡场（v17）。
+The shader went through 17 rounds (v1 playground prototype → v17 unified occlusion field), each stage focused on one thing:
+disruption shape (v4–v5) → ring timing (v6–v8) → joint continuity (v7, v9–v10) → hole/disk spacing (v11–v14) → performance (v12) → seam removal (v13, v16) → unified occlusion field (v17).

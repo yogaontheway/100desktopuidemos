@@ -4,34 +4,34 @@
 
 A curated collection of 100 desktop UI components, interactive effects, and shaders for macOS/iOS built with SwiftUI & Metal.
 
-基于 **SwiftUI + Metal (MSL)** 开发的 100 个桌面端交互特效与 UI 组件合集。单仓多项目（Monorepo）结构，每个 Demo 独立成 folder、互不依赖。
+A monorepo of 100 desktop interaction effects and UI components built with **SwiftUI + Metal (MSL)**. Every demo lives in its own folder and is fully self-contained — no shared dependencies between demos.
 
-## 环境要求
+## Requirements
 
-- **Xcode 27+** / macOS 26.6+（工程由 Xcode 27 保存，project file format 110，低版本 Xcode 无法打开）
-- Metal 无需 Toolchain，shader 为运行时编译的 MSL 字符串
+- **Xcode 27+** / macOS 26.6+ (the projects are saved by Xcode 27 as *project file format 110*; older Xcode versions cannot open them)
+- Metal needs no extra toolchain — every shader is an MSL string compiled at runtime
 
 ## CI
 
-每次 push 到 main 以及每个 PR 都会自动编译仓库内所有 Xcode 工程 / Swift 包（`.github/workflows/build.yml`，跑在 `xcode-27` 镜像上）。新增 Demo 无需改配置，会自动被发现。
+Every push to `main` and every pull request triggers an automatic build of all Xcode projects and Swift packages in the repo (`.github/workflows/build.yml`, running on the `xcode-27` runner image). New demos are discovered automatically — no configuration change needed.
 
-## Demo 清单
+## Demos
 
-| 序号 | Demo 名称 | 技术栈 / 核心亮点 | 预览 | 代码路径 |
-| :---: | :--- | :--- | :---: | :---: |
-| **001** | 黑洞引力回收站 | Metal Shader、潮汐撕裂、吸积盘流场、统一遮挡场 | ![preview](./001-black-hole-trashcan/preview.gif) | [查看源码](./001-black-hole-trashcan/) |
+| # | Demo | Stack / Highlights | Preview | Source |
+| :---: | :--- | :--- | :--- | :--- |
+| **001** | Black Hole Trashcan | Metal shader, tidal disruption, accretion disk flow, unified occlusion field | ![preview](./001-black-hole-trashcan/preview.gif) | [source](./001-black-hole-trashcan/) |
 | **002** | … | … | … | … |
 
-## 工作流
+## Adding a demo
 
-1. 新建 `NNN-demo-name/` 文件夹，放入独立 Xcode 工程或 Playground；
-2. 在 demo 目录内放一张 `preview.gif`（录制实际运行效果）；
-3. 在根目录 README 的清单表格中加一行。
+1. Create an `NNN-demo-name/` folder containing a standalone Xcode project or playground;
+2. Record a `preview.gif` of the demo actually running and put it in that folder;
+3. Add one row to the demo table in this README.
 
-## 版本标记
+## Version tags
 
-Demo 达到一个稳定可复现的状态时打 annotated tag，命名 `demo-name-vNN`，例如 `black-hole-v17`（001 号 Demo 的统一遮挡场版本）。
+When a demo reaches a stable, reproducible state, it gets an annotated tag named `demo-name-vNN` — for example `black-hole-v17` (Demo 001, the unified occlusion field version).
 
 ---
 
-每个 Demo 均为独立实验性质，代码可自由取用。
+Every demo is an independent experiment. The code is free to use.
