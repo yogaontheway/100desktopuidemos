@@ -1,5 +1,7 @@
 # 100 Desktop UI & Shader Demos
 
+A curated collection of 100 desktop UI components, interactive effects, and shaders for macOS/iOS built with SwiftUI & Metal.
+
 基于 **SwiftUI + Metal (MSL)** 开发的 100 个桌面端交互特效与 UI 组件合集。单仓多项目（Monorepo）结构，每个 Demo 独立成 folder、互不依赖。
 
 ## 环境要求
