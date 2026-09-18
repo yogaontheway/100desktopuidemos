@@ -1,0 +1,80 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build all demos
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+
+      - name: Build every Xcode project under 0*/ and 1*/
+        env:
+          NSUnbufferedIO: YES
+        run: |
+          set -euo pipefail
+
+          # 自动发现所有 demo 目录下的 Xcode 工程 —— 新增 002/003/... 无需改配置
+          # (runner 上是 bash 3.2, 不能用 mapfile / readarray)
+          find . -maxdepth 4 -name "*.xcodeproj" \
+            -not -path "*/_archive/*" -not -path "./.git/*" -not -path "*/build/*" \
+            | sort > "$RUNNER_TEMP/xc_projects.txt"
+
+          # 顺带支持纯 SwiftPM 的 demo (Package.swift)
+          find . -maxdepth 3 -name "Package.swift" \
+            -not -path "*/_archive/*" -not -path "./.git/*" \
+            | sort > "$RUNNER_TEMP/xc_packages.txt"
+
+          if [ ! -s "$RUNNER_TEMP/xc_projects.txt" ] && [ ! -s "$RUNNER_TEMP/xc_packages.txt" ]; then
+            echo "::error::No Xcode project or Swift package found - nothing to build."
+            exit 1
+          fi
+
+          status=0
+
+          while IFS= read -r proj; do
+            [ -z "$proj" ] && continue
+            echo "::group::Xcode project: $proj"
+            # 用 -list -json 拿 scheme, 避免把 scheme 名写死在工程里
+            schemes=$(xcodebuild -list -json -project "$proj" \
+              | python3 -c 'import json,sys;print("\n".join(json.load(sys.stdin).get("project",{}).get("schemes",[])))')
+            if [ -z "$schemes" ]; then
+              echo "::warning::$proj has no shared scheme, falling back to -target"
+              xcodebuild -project "$proj" -configuration Debug \
+                -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build || status=1
+            else
+              while IFS= read -r scheme; do
+                [ -z "$scheme" ] && continue
+                echo "--- scheme: $scheme ---"
+                xcodebuild -project "$proj" -scheme "$scheme" -configuration Debug \
+                  -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build || status=1
+              done <<< "$schemes"
+            fi
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/xc_projects.txt"
+
+          while IFS= read -r pkg; do
+            [ -z "$pkg" ] && continue
+            echo "::group::Swift package: $pkg"
+            (cd "$(dirname "$pkg")" && swift build) || status=1
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/xc_packages.txt"
+
+          exit $status
